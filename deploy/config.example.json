@@ -1,0 +1,18 @@
+{
+  "api_id": 123456,
+  "api_hash_file": "/etc/telegram-acl-mcp/api-hash.secret",
+  "session_file": "/etc/telegram-acl-mcp/session.secret",
+  "token_file": "/etc/telegram-acl-mcp/token.secret",
+  "indexing": {
+    "enabled": false
+  },
+  "chats": [
+    {
+      "key": "project_a",
+      "title": "Project A",
+      "kind": "channel",
+      "peer_id": 1234567890,
+      "access_hash": 1234567890123456789
+    }
+  ]
+}

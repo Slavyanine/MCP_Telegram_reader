@@ -1,0 +1,37 @@
+[Unit]
+Description=Telegram read-only ACL MCP
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=telegram-mcp
+Group=telegram-mcp
+WorkingDirectory=/opt/telegram-acl-mcp
+ExecStart=/opt/telegram-acl-mcp/.venv/bin/telegram-acl-mcp --config /etc/telegram-acl-mcp/config.json
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONNOUSERSITE=1
+Restart=on-failure
+RestartSec=10
+UMask=0077
+StateDirectory=telegram-acl-mcp
+StateDirectoryMode=0700
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+AmbientCapabilities=
+LockPersonality=true
+MemoryMax=512M
+TasksMax=64
+LimitNOFILE=1024
+
+[Install]
+WantedBy=multi-user.target

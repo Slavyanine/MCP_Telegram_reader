@@ -1,0 +1,1 @@
+"""Administrator-scoped Telegram reader."""

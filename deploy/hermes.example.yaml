@@ -1,0 +1,14 @@
+# Merge into the existing Hermes config.yaml on the HOST.
+mcp_servers:
+  telegram_reader:
+    url: "http://127.0.0.1:8765/mcp/"
+    headers:
+      Authorization: "Bearer ${TELEGRAM_MCP_TOKEN}"
+
+# Keep the rest of your terminal settings. Do not expose server directories,
+# Telegram session/API credentials, or a rootful Docker socket to the agent.
+# Optional indexed tools are advertised only when the SERVER config has
+# indexing.enabled=true. Refresh/reconnect Hermes MCP after restarting the server.
+# Do not mount /var/lib/telegram-acl-mcp into the Hermes container.
+terminal:
+  backend: docker
