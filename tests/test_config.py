@@ -30,6 +30,36 @@ def test_acl_immutable(config_file):
         cfg.chats["project_a"].peer_id = 999
 
 
+def test_yandex_secret_loaded_only_when_active(config_file):
+    path, data = config_file
+    secret = path.parent / "yandex.secret"
+    settings = {"enabled": True, "backend": "yandex", "database": str(path.parent / "db"),
+                "yandex": {"api_key_file": str(secret)}}
+    for override in ({"enabled": False}, {"transcribe": False}, {"backend": "telegram"}):
+        data["indexing"] = {**settings, **override}
+        path.write_text(json.dumps(data), encoding="utf-8")
+        assert config.load_config(path).indexing.yandex.api_key == ""
+    data["indexing"] = settings
+    path.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(FileNotFoundError):
+        config.load_config(path)
+    secret.write_text("test-secret", encoding="utf-8")
+    cfg = config.load_config(path)
+    assert cfg.indexing.yandex.api_key == "test-secret"
+    assert "test-secret" not in repr(cfg)
+    secret.write_text("", encoding="utf-8")
+    with pytest.raises(ValueError):
+        config.load_config(path)
+
+
+@pytest.mark.parametrize("yandex", [{}, {"api_key_file": "relative"}, {"language": "invalid"},
+    {"timeout_seconds": True}, {"timeout_seconds": 0}, {"api_key": "inline"}])
+def test_invalid_yandex_configuration(tmp_path, yandex):
+    values = {"api_key_file": str(tmp_path / "key"), **yandex} if yandex else {}
+    with pytest.raises(ValueError):
+        config.index_config({"enabled": True, "backend": "yandex", "database": str(tmp_path / "db"), "yandex": values})
+
+
 def test_indexing_disabled_by_default_and_optional(config_file):
     path, data = config_file
     assert not config.load_config(path).indexing.enabled

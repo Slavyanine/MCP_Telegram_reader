@@ -11,6 +11,7 @@ from .search import search
 from .storage import Store
 from .sync import Synchronizer
 from .transcription import TelegramTranscriber
+from .yandex import YandexTranscriber, TranscriptionError
 
 
 class IndexService:
@@ -23,6 +24,9 @@ class IndexService:
         self.next_rpc = 0.0
         self.rpc_lock = asyncio.Lock()
         self.transcriber = TelegramTranscriber()
+        if settings.enabled and settings.transcribe and settings.backend == "yandex":
+            self.transcriber = YandexTranscriber(settings.yandex)
+        self.backend_blocked = None
         self.sync = Synchronizer(self)
         self.last_error = None
 
@@ -33,6 +37,8 @@ class IndexService:
         self.premium = bool(getattr(account, "premium", False))
         self.premium_checked = time.monotonic()
         self.store = Store(self.settings, account.id, self.chats)
+        if isinstance(self.transcriber, YandexTranscriber):
+            await self.transcriber.start()
         self.tasks.append(asyncio.create_task(self.run_sync(), name="telegram-index-sync"))
         if self.settings.transcribe:
             self.tasks.append(asyncio.create_task(self.run_transcriptions(), name="telegram-transcription"))
@@ -43,6 +49,8 @@ class IndexService:
         if self.tasks:
             await asyncio.gather(*self.tasks, return_exceptions=True)
         self.tasks.clear()
+        if isinstance(self.transcriber, YandexTranscriber):
+            await self.transcriber.close()
         if self.store:
             self.store.close()
             self.store = None
@@ -87,9 +95,12 @@ class IndexService:
             self.premium_checked = time.monotonic()
 
     async def process_one(self):
-        await self.update_premium()
-        if not self.premium:
+        if not self.settings.transcribe or self.backend_blocked:
             return False
+        if self.settings.backend == "telegram":
+            await self.update_premium()
+            if not self.premium:
+                return False
         job = self.store.claim()
         if job is None:
             return False
@@ -105,9 +116,13 @@ class IndexService:
             self.store.save_page(chat.marked_id, [current])
             if current["media_version"] != job["media_version"] or current["message_type"] not in {"voice", "video_note"}:
                 return True  # save_page invalidated the old job and transcript.
-            result = await self.telegram_call(lambda: self.transcriber.transcribe(self.client, chat, job["message_id"]))
+            if self.settings.backend == "yandex":
+                result = await self.transcriber.transcribe(self.client, chat, job["message_id"],
+                    telegram_call=self.telegram_call, since=self.store.since, media_version=job["media_version"])
+            else:
+                result = await self.telegram_call(lambda: self.transcriber.transcribe(self.client, chat, job["message_id"]))
             if result["status"] == "ready":
-                self.store.finish(job, result["text"])
+                self.store.finish(job, result["text"], backend=self.settings.backend)
             elif result["status"] == "pending":
                 exhausted = job["polls"] + 1 >= self.settings.max_pending_polls
                 self.store.defer(job, "failed" if exhausted else "pending",
@@ -120,6 +135,14 @@ class IndexService:
             raise
         except FloodWaitError as exc:
             self.store.defer(job, "queued", "rate_limited", delay=exc.seconds)
+        except TranscriptionError as exc:
+            if exc.blocked:
+                self.backend_blocked = exc.code
+                self.store.defer(job, "queued", exc.code)
+            else:
+                exhausted = job["attempts"] + 1 >= self.settings.max_attempts
+                self.store.defer(job, "queued" if exc.retryable and not exhausted else "failed", exc.code,
+                    delay=min(3600, 5 * 2 ** min(job["attempts"], 10)), attempt=exc.retryable)
         except Exception as exc:
             name = type(exc).__name__
             if name == "PremiumAccountRequiredError":
@@ -168,7 +191,9 @@ class IndexService:
     def transcription_blocked_reason(self):
         if not self.settings.transcribe:
             return "disabled"
-        return "premium_required" if self.premium is False else None
+        if self.backend_blocked:
+            return self.backend_blocked
+        return "premium_required" if self.settings.backend == "telegram" and self.premium is False else None
 
     async def execute(self, name, args):
         if self.store is None:

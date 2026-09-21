@@ -2,7 +2,7 @@ import json
 import os
 import re
 import stat
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
 from types import MappingProxyType
@@ -44,6 +44,14 @@ class Chat:
 
 
 @dataclass(frozen=True)
+class YandexConfig:
+    api_key_file: str = ""
+    language: str = "ru-RU"
+    timeout_seconds: int = 30
+    api_key: str = field(default="", repr=False)
+
+
+@dataclass(frozen=True)
 class IndexConfig:
     enabled: bool = False
     database: str = "/var/lib/telegram-acl-mcp/index.sqlite3"
@@ -53,6 +61,7 @@ class IndexConfig:
     page_size: int = 100
     transcribe: bool = True
     backend: str = "telegram"
+    yandex: YandexConfig = YandexConfig()
     request_interval_seconds: int = 2
     max_attempts: int = 8
     max_pending_polls: int = 60
@@ -64,7 +73,11 @@ class IndexConfig:
 def index_config(data):
     if not isinstance(data, dict) or set(data) - set(IndexConfig.__dataclass_fields__):
         raise ValueError("Invalid indexing settings")
-    cfg = IndexConfig(**data)
+    data = dict(data)
+    yandex = data.pop("yandex", {})
+    if not isinstance(yandex, dict) or set(yandex) - {"api_key_file", "language", "timeout_seconds"}:
+        raise ValueError("Invalid indexing.yandex settings")
+    cfg = IndexConfig(**data, yandex=YandexConfig(**yandex))
     for key in ("enabled", "transcribe"):
         if type(getattr(cfg, key)) is not bool:
             raise ValueError(f"indexing.{key} must be boolean")
@@ -76,8 +89,16 @@ def index_config(data):
         value = getattr(cfg, key)
         if type(value) is not int or not low <= value <= high:
             raise ValueError(f"Invalid indexing.{key}")
-    if cfg.backend != "telegram":
-        raise ValueError("Only the telegram transcription backend is supported")
+    if cfg.backend not in ("telegram", "yandex"):
+        raise ValueError("Unsupported transcription backend")
+    if cfg.enabled and cfg.transcribe and cfg.backend == "yandex":
+        yc = cfg.yandex
+        if not isinstance(yc.api_key_file, str) or not yc.api_key_file or not Path(yc.api_key_file).is_absolute():
+            raise ValueError("indexing.yandex.api_key_file must be an absolute path")
+        if not isinstance(yc.language, str) or not re.fullmatch(r"[a-z]{2}-[A-Z]{2}", yc.language):
+            raise ValueError("Invalid indexing.yandex.language")
+        if type(yc.timeout_seconds) is not int or not 1 <= yc.timeout_seconds <= 300:
+            raise ValueError("Invalid indexing.yandex.timeout_seconds")
     if not isinstance(cfg.database, str) or not cfg.database.strip():
         raise ValueError("Invalid indexing.database")
     if cfg.enabled and not Path(cfg.database).is_absolute():
@@ -107,6 +128,11 @@ def load_config(path: Path) -> Config:
     if set(data) - {"indexing"} != {"chats", "api_id", "api_hash_file", "session_file", "token_file"}:
         raise ValueError("Invalid config keys")
     indexing = index_config(data.get("indexing", {}))
+    if indexing.enabled and indexing.transcribe and indexing.backend == "yandex":
+        key = protected_text(Path(indexing.yandex.api_key_file)).strip()
+        if not key or any(ord(c) <= 32 or ord(c) >= 127 for c in key):
+            raise ValueError("Invalid Yandex API key")
+        indexing = replace(indexing, yandex=replace(indexing.yandex, api_key=key))
     if type(data["api_id"]) is not int or data["api_id"] <= 0:
         raise ValueError("Invalid api_id")
     chats = {}

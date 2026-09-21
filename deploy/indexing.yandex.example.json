@@ -1,0 +1,12 @@
+{
+  "enabled": true,
+  "database": "/var/lib/telegram-acl-mcp/index.sqlite3",
+  "history_days": 90,
+  "transcribe": true,
+  "backend": "yandex",
+  "yandex": {
+    "api_key_file": "/etc/telegram-acl-mcp/yandex-api-key.secret",
+    "language": "ru-RU",
+    "timeout_seconds": 30
+  }
+}

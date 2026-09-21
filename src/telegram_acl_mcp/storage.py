@@ -68,6 +68,11 @@ class Store:
                     self.db.execute("INSERT OR IGNORE INTO sync_state(peer_id) VALUES (?)", (peer,))
                 # The process lock means these jobs can only belong to a dead worker.
                 self.db.execute("UPDATE transcription_jobs SET status='queued' WHERE status='processing'")
+                if settings.transcribe:
+                    previous_backend = self.get_meta("transcription_backend") or "telegram"
+                    if previous_backend != settings.backend:
+                        self.db.execute("UPDATE transcription_jobs SET status='queued',attempts=0,polls=0,next_attempt=0,error=NULL WHERE status IN ('queued','pending')")
+                    self.set_meta("transcription_backend", settings.backend)
                 self.refill_queue()
         except BaseException:
             self.close()
@@ -256,13 +261,13 @@ class Store:
                 return dict(row)
         return None
 
-    def finish(self, job, text):
+    def finish(self, job, text, backend="telegram"):
         self.require_peer(job["peer_id"])
         with self.db:
             current = self.db.execute("SELECT media_version FROM messages WHERE id=?", (job["id"],)).fetchone()
             if not current or current[0] != job["media_version"]:
                 return
-            self.db.execute("INSERT OR REPLACE INTO transcripts VALUES (?,?,?,?,?)", (job["id"], "telegram", job["media_version"], text, utcnow()))
+            self.db.execute("INSERT OR REPLACE INTO transcripts VALUES (?,?,?,?,?)", (job["id"], backend, job["media_version"], text, utcnow()))
             self.db.execute("DELETE FROM transcription_jobs WHERE message_row=?", (job["id"],))
             self._refresh_search(job["id"])
             self.refill_queue()

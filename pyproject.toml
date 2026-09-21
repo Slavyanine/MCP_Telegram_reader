@@ -7,7 +7,7 @@ name = "telegram-acl-mcp"
 version = "0.2.0"
 description = "Telegram ACL reader with optional indexed search and native voice transcription"
 requires-python = ">=3.11"
-dependencies = ["mcp==1.26.0", "Telethon==1.42.0", "jsonschema>=4.23,<5"]
+dependencies = ["mcp==1.26.0", "Telethon==1.42.0", "jsonschema>=4.23,<5", "httpx==0.28.1"]
 
 [project.optional-dependencies]
 test = ["pytest>=8,<10", "pytest-asyncio>=1,<2"]
