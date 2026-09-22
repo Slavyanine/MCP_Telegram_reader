@@ -15,6 +15,11 @@ test = ["pytest>=8,<10", "pytest-asyncio>=1,<2"]
 [project.scripts]
 telegram-acl-mcp = "telegram_acl_mcp.server:main"
 telegram-acl-admin = "telegram_acl_mcp.admin:main"
+telegram-acl-admin-web = "telegram_acl_mcp.admin_web:main"
+telegram-acl-admin-broker = "telegram_acl_mcp.admin_web:broker_main"
+
+[tool.setuptools.package-data]
+telegram_acl_mcp = ["admin_static/*.html", "admin_static/*.css", "admin_static/*.js"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

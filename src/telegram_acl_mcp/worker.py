@@ -10,8 +10,9 @@ from .reader import ReaderError
 from .search import search
 from .storage import Store
 from .sync import Synchronizer
-from .transcription import TelegramTranscriber
-from .yandex import YandexTranscriber, TranscriptionError
+from .transcription import TelegramTranscriber, TranscriptionError
+from .yandex import YandexTranscriber
+from .deepgram import DeepgramTranscriber
 
 
 class IndexService:
@@ -24,8 +25,9 @@ class IndexService:
         self.next_rpc = 0.0
         self.rpc_lock = asyncio.Lock()
         self.transcriber = TelegramTranscriber()
-        if settings.enabled and settings.transcribe and settings.backend == "yandex":
-            self.transcriber = YandexTranscriber(settings.yandex)
+        if settings.enabled and settings.transcribe and settings.backend != "telegram":
+            factory = {"yandex": YandexTranscriber, "deepgram": DeepgramTranscriber}[settings.backend]
+            self.transcriber = factory(getattr(settings, settings.backend))
         self.backend_blocked = None
         self.sync = Synchronizer(self)
         self.last_error = None
@@ -37,8 +39,7 @@ class IndexService:
         self.premium = bool(getattr(account, "premium", False))
         self.premium_checked = time.monotonic()
         self.store = Store(self.settings, account.id, self.chats)
-        if isinstance(self.transcriber, YandexTranscriber):
-            await self.transcriber.start()
+        await self.transcriber.start()
         self.tasks.append(asyncio.create_task(self.run_sync(), name="telegram-index-sync"))
         if self.settings.transcribe:
             self.tasks.append(asyncio.create_task(self.run_transcriptions(), name="telegram-transcription"))
@@ -49,8 +50,7 @@ class IndexService:
         if self.tasks:
             await asyncio.gather(*self.tasks, return_exceptions=True)
         self.tasks.clear()
-        if isinstance(self.transcriber, YandexTranscriber):
-            await self.transcriber.close()
+        await self.transcriber.close()
         if self.store:
             self.store.close()
             self.store = None
@@ -70,6 +70,19 @@ class IndexService:
                     finally:
                         self.next_rpc = max(self.next_rpc, time.monotonic() + self.settings.request_interval_seconds)
             await asyncio.sleep(delay)
+
+    async def download_call(self, operation):
+        # Reserve a Telegram request slot, but do not hold the RPC lock during transfer.
+        async def reserve():
+            return None
+        await self.telegram_call(reserve)
+        timeout = getattr(self.transcriber.settings, "download_timeout_seconds", 20)
+        try:
+            async with asyncio.timeout(timeout):
+                return await operation()
+        except FloodWaitError as exc:
+            self.next_rpc = max(self.next_rpc, time.monotonic() + exc.seconds)
+            raise
 
     async def run_sync(self):
         while True:
@@ -95,7 +108,7 @@ class IndexService:
             self.premium_checked = time.monotonic()
 
     async def process_one(self):
-        if not self.settings.transcribe or self.backend_blocked:
+        if not self.settings.enabled or not self.settings.transcribe or self.backend_blocked:
             return False
         if self.settings.backend == "telegram":
             await self.update_premium()
@@ -116,9 +129,10 @@ class IndexService:
             self.store.save_page(chat.marked_id, [current])
             if current["media_version"] != job["media_version"] or current["message_type"] not in {"voice", "video_note"}:
                 return True  # save_page invalidated the old job and transcript.
-            if self.settings.backend == "yandex":
+            if self.transcriber.external_audio:
                 result = await self.transcriber.transcribe(self.client, chat, job["message_id"],
-                    telegram_call=self.telegram_call, since=self.store.since, media_version=job["media_version"])
+                    telegram_call=self.telegram_call, download_call=self.download_call,
+                    since=self.store.since, media_version=job["media_version"])
             else:
                 result = await self.telegram_call(lambda: self.transcriber.transcribe(self.client, chat, job["message_id"]))
             if result["status"] == "ready":
@@ -142,7 +156,7 @@ class IndexService:
             else:
                 exhausted = job["attempts"] + 1 >= self.settings.max_attempts
                 self.store.defer(job, "queued" if exc.retryable and not exhausted else "failed", exc.code,
-                    delay=min(3600, 5 * 2 ** min(job["attempts"], 10)), attempt=exc.retryable)
+                    delay=max(exc.retry_after, min(3600, 5 * 2 ** min(job["attempts"], 10))), attempt=exc.retryable)
         except Exception as exc:
             name = type(exc).__name__
             if name == "PremiumAccountRequiredError":
