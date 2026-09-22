@@ -52,6 +52,19 @@ class YandexConfig:
 
 
 @dataclass(frozen=True)
+class DeepgramConfig:
+    api_key_file: str = ""
+    model: str = "nova-3"
+    language: str = "ru"
+    smart_format: bool = True
+    timeout_seconds: int = 120
+    download_timeout_seconds: int = 120
+    max_audio_bytes: int = 25_000_000
+    max_audio_duration_seconds: int = 3600
+    api_key: str = field(default="", repr=False)
+
+
+@dataclass(frozen=True)
 class IndexConfig:
     enabled: bool = False
     database: str = "/var/lib/telegram-acl-mcp/index.sqlite3"
@@ -62,6 +75,7 @@ class IndexConfig:
     transcribe: bool = True
     backend: str = "telegram"
     yandex: YandexConfig = YandexConfig()
+    deepgram: DeepgramConfig = DeepgramConfig()
     request_interval_seconds: int = 2
     max_attempts: int = 8
     max_pending_polls: int = 60
@@ -77,7 +91,10 @@ def index_config(data):
     yandex = data.pop("yandex", {})
     if not isinstance(yandex, dict) or set(yandex) - {"api_key_file", "language", "timeout_seconds"}:
         raise ValueError("Invalid indexing.yandex settings")
-    cfg = IndexConfig(**data, yandex=YandexConfig(**yandex))
+    deepgram = data.pop("deepgram", {})
+    if not isinstance(deepgram, dict) or set(deepgram) - (set(DeepgramConfig.__dataclass_fields__) - {"api_key"}):
+        raise ValueError("Invalid indexing.deepgram settings")
+    cfg = IndexConfig(**data, yandex=YandexConfig(**yandex), deepgram=DeepgramConfig(**deepgram))
     for key in ("enabled", "transcribe"):
         if type(getattr(cfg, key)) is not bool:
             raise ValueError(f"indexing.{key} must be boolean")
@@ -89,7 +106,7 @@ def index_config(data):
         value = getattr(cfg, key)
         if type(value) is not int or not low <= value <= high:
             raise ValueError(f"Invalid indexing.{key}")
-    if cfg.backend not in ("telegram", "yandex"):
+    if cfg.backend not in ("telegram", "yandex", "deepgram"):
         raise ValueError("Unsupported transcription backend")
     if cfg.enabled and cfg.transcribe and cfg.backend == "yandex":
         yc = cfg.yandex
@@ -99,6 +116,22 @@ def index_config(data):
             raise ValueError("Invalid indexing.yandex.language")
         if type(yc.timeout_seconds) is not int or not 1 <= yc.timeout_seconds <= 300:
             raise ValueError("Invalid indexing.yandex.timeout_seconds")
+    if cfg.enabled and cfg.transcribe and cfg.backend == "deepgram":
+        dc = cfg.deepgram
+        if not isinstance(dc.api_key_file, str) or not dc.api_key_file or not Path(dc.api_key_file).is_absolute():
+            raise ValueError("indexing.deepgram.api_key_file must be an absolute path")
+        if not isinstance(dc.model, str) or not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", dc.model):
+            raise ValueError("Invalid indexing.deepgram.model")
+        if not isinstance(dc.language, str) or not re.fullmatch(r"[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*|multi", dc.language):
+            raise ValueError("Invalid indexing.deepgram.language")
+        if type(dc.smart_format) is not bool:
+            raise ValueError("indexing.deepgram.smart_format must be boolean")
+        for key, (low, high) in {"timeout_seconds": (1, 600), "download_timeout_seconds": (1, 600),
+                                 "max_audio_bytes": (1, 100_000_000),
+                                 "max_audio_duration_seconds": (1, 14400)}.items():
+            value = getattr(dc, key)
+            if type(value) is not int or not low <= value <= high:
+                raise ValueError(f"Invalid indexing.deepgram.{key}")
     if not isinstance(cfg.database, str) or not cfg.database.strip():
         raise ValueError("Invalid indexing.database")
     if cfg.enabled and not Path(cfg.database).is_absolute():
@@ -128,11 +161,12 @@ def load_config(path: Path) -> Config:
     if set(data) - {"indexing"} != {"chats", "api_id", "api_hash_file", "session_file", "token_file"}:
         raise ValueError("Invalid config keys")
     indexing = index_config(data.get("indexing", {}))
-    if indexing.enabled and indexing.transcribe and indexing.backend == "yandex":
-        key = protected_text(Path(indexing.yandex.api_key_file)).strip()
+    if indexing.enabled and indexing.transcribe and indexing.backend in ("yandex", "deepgram"):
+        provider = getattr(indexing, indexing.backend)
+        key = protected_text(Path(provider.api_key_file)).strip()
         if not key or any(ord(c) <= 32 or ord(c) >= 127 for c in key):
-            raise ValueError("Invalid Yandex API key")
-        indexing = replace(indexing, yandex=replace(indexing.yandex, api_key=key))
+            raise ValueError(f"Invalid {indexing.backend} API key")
+        indexing = replace(indexing, **{indexing.backend: replace(provider, api_key=key)})
     if type(data["api_id"]) is not int or data["api_id"] <= 0:
         raise ValueError("Invalid api_id")
     chats = {}

@@ -1,0 +1,17 @@
+{
+  "enabled": true,
+  "database": "/var/lib/telegram-acl-mcp/index.sqlite3",
+  "history_days": 90,
+  "transcribe": true,
+  "backend": "deepgram",
+  "deepgram": {
+    "api_key_file": "/etc/telegram-acl-mcp/deepgram-api-key.secret",
+    "model": "nova-3",
+    "language": "ru",
+    "smart_format": true,
+    "timeout_seconds": 120,
+    "download_timeout_seconds": 120,
+    "max_audio_bytes": 25000000,
+    "max_audio_duration_seconds": 3600
+  }
+}

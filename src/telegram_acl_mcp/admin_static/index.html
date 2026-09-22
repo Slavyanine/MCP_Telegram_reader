@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ru">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Telegram · Управление MCP</title><link rel="stylesheet" href="/assets/style.css"><script src="/assets/app.js" defer></script></head>
+<body>
+<header><div class="brand">T<span>Telegram MCP</span></div><span class="badge">Администрирование</span><button id="logout" class="quiet" hidden>Выйти из панели</button></header>
+<main>
+  <section id="gate" class="card gate"><p class="eyebrow">ДОСТУП АДМИНИСТРАТОРА</p><h1>Управление сервером</h1><p>Войдите с отдельным токеном панели. Токен MCP здесь не используется.</p><form id="gate-form"><label>Токен администратора<input id="token" type="password" autocomplete="off" required></label><button type="submit">Открыть панель</button></form><p class="muted">Токен хранится только в памяти этой вкладки.</p></section>
+  <div id="workspace" hidden>
+    <div class="heading"><div><p class="eyebrow">КОНФИГУРАЦИЯ СЕРВЕРА</p><h1>Аккаунт, чаты и обработка</h1><p>Изменения применяются с перезапуском MCP-службы.</p><small id="service-status"></small></div><span id="draft-status" class="badge">Черновик</span></div>
+    <div id="conflict" class="notice warning" hidden>Рабочая конфигурация изменилась вне панели. Сбросьте черновик перед продолжением.</div>
+    <section class="card"><div class="section-head"><div><h2>01 · Telegram-аккаунт</h2><p id="account">Аккаунт ещё не проверен. Загрузите список чатов.</p></div><button id="show-login" class="secondary">Сменить аккаунт</button></div>
+      <div id="login-panel" hidden><p class="notice">Новая авторизация подготовит отдельную сессию и базу индекса. Работающий сервер переключится только после применения. Для отмены уже завершённого входа используйте «Сбросить черновик».</p>
+        <form id="phone-form"><div class="grid three"><label>API ID<input id="api-id" inputmode="numeric" type="number" min="1" required></label><label>API Hash<input id="api-hash" type="password" autocomplete="off" placeholder="Пусто — использовать сохранённый"></label><label>Телефон<input id="phone" type="tel" autocomplete="off" placeholder="+79991234567" required></label></div><button type="submit">Получить код</button></form>
+        <form id="code-form" hidden><label>Код Telegram<input id="code" inputmode="numeric" autocomplete="off" required></label><button type="submit">Подтвердить код</button></form>
+        <form id="password-form" hidden><label>Пароль 2FA<input id="password" type="password" autocomplete="off" required></label><button type="submit">Войти</button></form>
+        <button id="cancel-login" class="quiet">Отменить вход</button>
+      </div>
+    </section>
+    <section class="card"><div class="section-head"><div><h2>02 · Разрешённые чаты</h2><p>Отметьте чаты и задайте ключи, по которым к ним будет обращаться MCP.</p></div><button id="load-chats" class="secondary">Загрузить чаты</button></div>
+      <div class="filters"><label class="search">Поиск<input id="search" type="search" placeholder="Название или ключ чата"></label><label>Тип<select id="kind"><option value="">Все типы</option><option value="channel">Каналы и супергруппы</option><option value="group">Группы</option><option value="user">Личные диалоги</option></select></label><span id="selection-count" class="muted"></span></div>
+      <div class="table-wrap"><table><thead><tr><th>Доступ</th><th>Чат в Telegram</th><th>Ключ MCP · key</th><th>Название · title</th></tr></thead><tbody id="chats"></tbody></table></div><p id="empty" class="muted" hidden>Чаты не найдены. Загрузите список или измените фильтр.</p>
+      <p class="muted">Технические параметры чата заполняются автоматически. Загрузка следующей страницы сохраняет ваш выбор.</p>
+    </section>
+    <section class="card"><h2>03 · Режимы обработки</h2><div class="grid three modes"><label class="toggle"><input id="indexing" type="checkbox"><span>Индексация<small>Локальный поиск по сообщениям</small></span></label><label class="toggle"><input id="transcribe" type="checkbox"><span>Транскрибация<small>Расшифровка голосовых</small></span></label><label>Провайдер<select id="backend"><option value="telegram">Telegram</option><option value="yandex">Yandex SpeechKit</option><option value="deepgram">Deepgram</option></select></label></div>
+      <p id="provider-note" class="notice"></p><div class="grid two"><label>API-ключ Yandex <span id="yandex-status" class="muted"></span><input id="yandex-key" type="password" autocomplete="off" placeholder="Пусто — оставить текущий"></label><label>API-ключ Deepgram <span id="deepgram-status" class="muted"></span><input id="deepgram-key" type="password" autocomplete="off" placeholder="Пусто — оставить текущий"></label></div>
+      <p class="muted">Выключение режимов сохраняет базу и готовые расшифровки. Смена провайдера не запускает повторную расшифровку готовых результатов или заданий с ошибкой.</p>
+    </section>
+    <div class="actions"><button id="discard" class="quiet">Сбросить черновик</button><div><button id="save" class="secondary">Сохранить черновик</button><button id="preview">Проверить и применить</button></div></div>
+    <section id="review" class="card" hidden><h2>Проверка изменений</h2><div id="summary"></div><p class="notice warning">MCP-служба будет перезапущена. При включённой индексации данные исключённых чатов будут удалены из активного индекса. Перед применением создаётся резервная копия.</p><button id="apply">Применить с перезапуском</button><button id="cancel-review" class="quiet">Продолжить редактирование</button></section>
+  </div>
+  <div id="message" role="status" aria-live="polite" hidden></div>
+</main><footer>Telegram ACL MCP · Панель управления</footer>
+</body></html>

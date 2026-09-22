@@ -1,0 +1,39 @@
+[Unit]
+Description=Telegram ACL fixed-purpose administration broker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=telegram-acl-admin
+WorkingDirectory=/opt/telegram-acl-mcp
+ExecStart=/opt/telegram-acl-mcp/.venv/bin/telegram-acl-admin-broker
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONNOUSERSITE=1
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=360
+UMask=0077
+RuntimeDirectory=telegram-acl-admin
+RuntimeDirectoryMode=0750
+StateDirectory=telegram-acl-admin
+StateDirectoryMode=0700
+ProtectSystem=strict
+ReadWritePaths=/etc/telegram-acl-mcp /var/lib/telegram-acl-mcp
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+NoNewPrivileges=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER
+LockPersonality=true
+MemoryMax=512M
+TasksMax=64
+
+[Install]
+WantedBy=multi-user.target

@@ -49,6 +49,10 @@ def tool_definitions(chats, indexing=None):
         if indexing.transcribe:
             media_policy = ("Yandex backend downloads voice audio into memory and uploads it to SpeechKit. Only mono OggOpus up to 30 seconds and 1,000,000 bytes; video notes unsupported."
                             if indexing.backend == "yandex" else "Telegram backend supports voice/video notes. No media download or third-party upload.")
+            if indexing.backend == "deepgram":
+                media_policy = ("Deepgram backend downloads voice audio into memory and uploads it to Deepgram. "
+                    f"Only mono OggOpus up to {indexing.deepgram.max_audio_duration_seconds} seconds and "
+                    f"{indexing.deepgram.max_audio_bytes} bytes; video notes unsupported. No Telegram Premium required.")
             definitions.append(("telegram_transcribe_voice", "Return a cached machine transcript or queue a message in an allowed chat within configured history. Does not wait for transcription. Check status later. retry_failed explicitly restarts a failed job. " + media_policy, {"chat_key": key, "message_id": mid, "retry_failed": {"type": "boolean", "default": False}}, ["chat_key", "message_id"]))
     return [Tool(name=n, description=d, inputSchema={"type": "object", "properties": p, "required": r, "additionalProperties": False}, annotations=ToolAnnotations(readOnlyHint=n != "telegram_transcribe_voice", destructiveHint=False, idempotentHint=n != "telegram_transcribe_voice", openWorldHint=True)) for n, d, p, r in definitions]
 

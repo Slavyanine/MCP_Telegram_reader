@@ -30,26 +30,52 @@ def test_acl_immutable(config_file):
         cfg.chats["project_a"].peer_id = 999
 
 
-def test_yandex_secret_loaded_only_when_active(config_file):
+@pytest.mark.parametrize("backend", ["yandex", "deepgram"])
+def test_provider_secret_loaded_only_when_active(config_file, backend):
     path, data = config_file
-    secret = path.parent / "yandex.secret"
-    settings = {"enabled": True, "backend": "yandex", "database": str(path.parent / "db"),
-                "yandex": {"api_key_file": str(secret)}}
+    secret = path.parent / (backend + ".secret")
+    settings = {"enabled": True, "backend": backend, "database": str(path.parent / "db"),
+                backend: {"api_key_file": str(secret)}}
     for override in ({"enabled": False}, {"transcribe": False}, {"backend": "telegram"}):
         data["indexing"] = {**settings, **override}
         path.write_text(json.dumps(data), encoding="utf-8")
-        assert config.load_config(path).indexing.yandex.api_key == ""
+        assert getattr(config.load_config(path).indexing, backend).api_key == ""
     data["indexing"] = settings
     path.write_text(json.dumps(data), encoding="utf-8")
     with pytest.raises(FileNotFoundError):
         config.load_config(path)
     secret.write_text("test-secret", encoding="utf-8")
     cfg = config.load_config(path)
-    assert cfg.indexing.yandex.api_key == "test-secret"
+    assert getattr(cfg.indexing, backend).api_key == "test-secret"
     assert "test-secret" not in repr(cfg)
     secret.write_text("", encoding="utf-8")
     with pytest.raises(ValueError):
         config.load_config(path)
+
+
+@pytest.mark.parametrize("values", [{}, {"api_key_file": "relative"}, {"language": "invalid"},
+    {"language": None}, {"model": ""}, {"model": "nova-3&extra=true"}, {"smart_format": 1},
+    {"timeout_seconds": True}, {"timeout_seconds": 0}, {"timeout_seconds": 601},
+    {"download_timeout_seconds": 0}, {"max_audio_bytes": 0}, {"max_audio_bytes": 100_000_001},
+    {"max_audio_duration_seconds": 14401}, {"api_key": "inline"}, {"unknown": True}])
+def test_invalid_deepgram_configuration(tmp_path, values):
+    values = {"api_key_file": str(tmp_path / "key"), **values} if values else {}
+    with pytest.raises(ValueError):
+        config.index_config({"enabled": True, "backend": "deepgram", "database": str(tmp_path / "db"),
+                             "deepgram": values})
+
+
+def test_both_provider_settings_can_coexist(config_file):
+    path, data = config_file
+    secret = path.parent / "deepgram.secret"
+    secret.write_text("dg-secret", encoding="utf-8")
+    data["indexing"] = {"enabled": True, "backend": "deepgram", "database": str(path.parent / "db"),
+        "deepgram": {"api_key_file": str(secret)}, "yandex": {"api_key_file": str(path.parent / "missing")}}
+    path.write_text(json.dumps(data), encoding="utf-8")
+    cfg = config.load_config(path).indexing
+    assert cfg.deepgram.language == "ru"
+    assert cfg.deepgram.model == "nova-3"
+    assert cfg.yandex.api_key == ""
 
 
 @pytest.mark.parametrize("yandex", [{}, {"api_key_file": "relative"}, {"language": "invalid"},

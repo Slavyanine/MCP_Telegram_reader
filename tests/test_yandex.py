@@ -9,7 +9,9 @@ from telegram_acl_mcp.search import search
 from telegram_acl_mcp.server import tool_definitions
 from telegram_acl_mcp.storage import Store
 from telegram_acl_mcp.worker import IndexService
-from telegram_acl_mcp.yandex import MAX_BYTES, BoundedAudio, TranscriptionError, validate_ogg
+from telegram_acl_mcp.yandex import MAX_BYTES
+from telegram_acl_mcp.audio import BoundedAudio, validate_ogg
+from telegram_acl_mcp.transcription import TranscriptionError
 from test_index import add, media_message
 from test_reader import CHAT, FakeClient
 
@@ -150,20 +152,25 @@ async def test_cancel_http_requeues_and_rpc_remains_available(service):
     assert service.store.get(CHAT.marked_id, 1)["transcript_status"] == "queued"
 
 
-def test_switch_backend_preserves_cache_and_failed_jobs(tmp_path):
-    settings = IndexConfig(enabled=True, database=str(tmp_path / "db"))
+@pytest.mark.parametrize("previous,current", [(a, b) for a in ("telegram", "yandex", "deepgram")
+    for b in ("telegram", "yandex", "deepgram") if a != b])
+@pytest.mark.parametrize("state", ["queued", "pending", "processing"])
+def test_switch_backend_preserves_cache_and_failed_jobs(tmp_path, previous, current, state):
+    settings = IndexConfig(enabled=True, database=str(tmp_path / "db"), backend=previous)
     store = Store(replace(settings, history_since="2026-09-01T00:00:00Z"), 7, {CHAT.key: CHAT})
     for number in (1, 2, 3): add(store, media_message(number, voice=True))
-    store.finish(store.claim(), "готово")
+    store.finish(store.claim(), "готово", backend=previous)
     store.defer(store.claim(), "failed", "transcription_failed")
-    store.defer(store.claim(), "pending", delay=999, attempt=True, poll=True)
+    store.defer(store.claim(), state, delay=999, attempt=True, poll=True)
     store.close()
-    store = Store(replace(settings, backend="yandex"), 7, {CHAT.key: CHAT})
+    store = Store(replace(settings, backend=current), 7, {CHAT.key: CHAT})
     try:
         job = store.claim()
         assert job["attempts"] == job["polls"] == 0
-        assert store.get(CHAT.marked_id, 3)["transcript_source"] == "telegram"
+        assert store.get(CHAT.marked_id, 3)["transcript_source"] == previous
         assert store.get(CHAT.marked_id, 2)["transcript_status"] == "failed"
+        store.prioritize(CHAT.marked_id, 2, retry_failed=True)
+        assert store.get(CHAT.marked_id, 2)["transcript_status"] == "queued"
     finally:
         store.close()
 
